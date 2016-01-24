@@ -541,6 +541,7 @@ class HTTPConnectionPool(ConnectionPool, RequestMethods):
         # complains about UnboundLocalError.
         err = None
 
+        current_release_conn = release_conn
         try:
             # Request a connection from the queue.
             timeout_obj = self._get_timeout(timeout)
@@ -561,7 +562,7 @@ class HTTPConnectionPool(ConnectionPool, RequestMethods):
             # the request doesn't need to know about the connection. Otherwise
             # it will also try to release it and we'll have a double-release
             # mess.
-            response_conn = not release_conn and conn
+            response_conn = not current_release_conn and conn
 
             # Import httplib's response into our own wrapper object
             response = HTTPResponse.from_httplib(httplib_response,
@@ -583,21 +584,21 @@ class HTTPConnectionPool(ConnectionPool, RequestMethods):
             # was a Certificate error, the next request will certainly raise
             # another Certificate error.
             conn = conn and conn.close()
-            release_conn = True
+            current_release_conn = True
             raise SSLError(e)
 
         except SSLError:
             # Treat SSLError separately from BaseSSLError to preserve
             # traceback.
             conn = conn and conn.close()
-            release_conn = True
+            current_release_conn = True
             raise
 
         except (TimeoutError, HTTPException, SocketError, ProtocolError) as e:
             # Discard the connection for these exceptions. It will be
             # be replaced during the next _get_conn() call.
             conn = conn and conn.close()
-            release_conn = True
+            current_release_conn = True
 
             if isinstance(e, (SocketError, NewConnectionError)) and self.proxy:
                 e = ProxyError('Cannot connect to proxy.', e)
@@ -612,7 +613,7 @@ class HTTPConnectionPool(ConnectionPool, RequestMethods):
             err = e
 
         finally:
-            if release_conn:
+            if current_release_conn:
                 # Put the connection back to be reused. If the connection is
                 # expired then it will be None, which will get replaced with a
                 # fresh connection during _get_conn.
